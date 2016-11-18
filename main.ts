@@ -1,23 +1,67 @@
 import {Observable, Observer} from "rxjs";
 
-const circle = document.getElementById("circle");
-let source = Observable
-    .fromEvent(document, "mousemove")
-    .map((e: MouseEvent) => {
-        return {
-            x: e.clientX,
-            y: e.clientY
-        };
-    })
-    //.delay(300);
+const output = document.getElementById("output");
+const button = document.getElementById("button");
 
-function onNext(value){
-    circle.style.left = `${value.x}px`;
-    circle.style.top = `${value.y}px`;
+let click = Observable
+    .fromEvent(button, "click")
+
+
+interface Movie {
+    title: string;
 }
 
-source.subscribe(
-    onNext,
-    e => console.log(e),
-    () => console.log("complete2")
-);
+function retryStrategy({attempts = 3, delay = 1500}) {
+    return function (errors) {
+        return errors
+            .scan((acc, value) => {
+                console.log(acc, value);
+                return acc + 1;
+            }, 0)
+            .takeWhile(acc => acc < attempts)
+            .delay(delay);
+    }
+}
+
+function load(url: string) {
+
+    return Observable.create((observer: Observer<Movie>) => {
+        let xhr = new XMLHttpRequest();
+
+        xhr.addEventListener("load", () => {
+            if (xhr.status === 200) {
+                let data = JSON.parse(xhr.responseText);
+                observer.next(data);
+                observer.complete();
+            } else {
+                observer.error(xhr.statusText);
+            }
+
+        });
+
+        xhr.open("GET", url);
+        xhr.send();
+    }).retryWhen(retryStrategy({attempts:3, delay: 1500}));
+}
+
+function loadWithFetch(url:string){
+    return Observable.defer(() => {
+        return Observable
+            .fromPromise(fetch(url).then(r => r.json()));
+    });
+}
+
+function renderMovies(movies) {
+    movies.forEach(m => {
+        let div = document.createElement("div");
+        div.textContent = m.title;
+        output.appendChild(div);
+    });
+}
+
+load("movies.json").subscribe(renderMovies);
+
+click.flatMap(e => loadWithFetch("movies.json"))
+    .subscribe(renderMovies,
+        e => console.log(e),
+        () => console.log("complete"));
